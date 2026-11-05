@@ -43,11 +43,12 @@ public class FileParserM1 {
 
             String line;
 
-            // Read and display the header row
+            // Read the header row
             String header = br.readLine();
-            System.out.println("Header: " + header);
 
             // Read the remaining book records
+            System.out.println("Parsing books.csv...");
+            
             while ((line = br.readLine()) != null)
             {
                 // Separate the CSV line into individual columns
@@ -132,7 +133,7 @@ public class FileParserM1 {
                 {
                     bookList.add(bookData);
                 }
-
+/*
                 // Display book information for verification 
                 System.out.println("Number of columns: " + columns.size());
                 
@@ -142,7 +143,7 @@ public class FileParserM1 {
                 System.out.println("Column 2: " + columns.get(2));
 
                 System.out.println("----------------------");
-               
+*/
             }
 
         }
@@ -160,7 +161,7 @@ public class FileParserM1 {
         // Create the books output file 
         try (FileWriter writer = new FileWriter("books_output.csv"))
         {
-
+            System.out.println("Writing to books_output.csv...");
             // Write the column headers
             writer.write("Isbn,Title\n");
 
@@ -178,6 +179,7 @@ public class FileParserM1 {
         // Create the authors output file 
         try (FileWriter writer = new FileWriter("authors.csv"))
         {
+            System.out.println("Writing to authors.csv...");
             // Write the column headers
             writer.write("Author_id,Name\n");
 
@@ -195,6 +197,7 @@ public class FileParserM1 {
         // Create the book-author and relationship output file 
         try (FileWriter writer = new FileWriter("book_authors.csv"))
         {
+            System.out.println("Writing to book_authors.csv...");
             // Write the column headers 
             writer.write("Author_id,Isbn\n");
 
@@ -224,6 +227,7 @@ public class FileParserM1 {
             String line;
 
             // Skip the header row 
+            System.out.println("Parsing borrowers.csv...");
             br.readLine();
 
             // Read each borrower record 
@@ -278,6 +282,7 @@ public class FileParserM1 {
         // Create the borrowers output file
         try (FileWriter writer = new FileWriter("borrowers_output.csv"))
         {
+            System.out.println("Writing to borrowers_output.csv...");
             // Write the column headers 
             writer.write("Card_id,Ssn,Bname,Address,Phone\n");
 
@@ -291,7 +296,7 @@ public class FileParserM1 {
         {
             e.printStackTrace();
         }
-
+        System.out.println("Parsing complete.");
     }
 
         // ==========================================
