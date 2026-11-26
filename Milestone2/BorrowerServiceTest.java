@@ -169,14 +169,14 @@ public class BorrowerServiceTest {
 
             // An existing record stored WITHOUT dashes must still count as a duplicate.
             try (Statement st = conn.createStatement()) {
-                st.executeUpdate("INSERT INTO BORROWER (Card_id, Ssn, Bname, Address) "
+                st.executeUpdate("INSERT INTO borrower (Card_id, Ssn, Bname, Address) "
                         + "VALUES (999999, '900990777', 'Legacy Testperson', '9 Old Rd, Dallas, TX')");
             }
             expectFailure("Duplicate SSN vs. existing record stored without dashes rejected",
                     service.registerBorrower("Someone Else", "900-99-0777", "200 Other St, Plano, TX", null),
                     "already exists");
             try (Statement st = conn.createStatement()) {
-                st.executeUpdate("DELETE FROM BORROWER WHERE Card_id = 999999 AND Ssn = '900990777'");
+                st.executeUpdate("DELETE FROM borrower WHERE Card_id = 999999 AND Ssn = '900990777'");
             }
 
             // 3. Sequential, unique card IDs
@@ -248,7 +248,7 @@ public class BorrowerServiceTest {
 
     private static int maxCardId(Connection conn) throws SQLException {
         try (Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT COALESCE(MAX(Card_id), 0) FROM BORROWER")) {
+             ResultSet rs = st.executeQuery("SELECT COALESCE(MAX(Card_id), 0) FROM borrower")) {
             rs.next();
             return rs.getInt(1);
         }
@@ -256,7 +256,7 @@ public class BorrowerServiceTest {
 
     private static int countTestRows(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT COUNT(*) FROM BORROWER WHERE REPLACE(Ssn, '-', '') LIKE ?")) {
+                "SELECT COUNT(*) FROM borrower WHERE REPLACE(Ssn, '-', '') LIKE ?")) {
             ps.setString(1, TEST_SSN_PREFIX.replace("-", "") + "%");
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
@@ -268,7 +268,7 @@ public class BorrowerServiceTest {
     /** Deletes only the fictional rows created by this test. */
     private static void deleteTestRows(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "DELETE FROM BORROWER WHERE REPLACE(Ssn, '-', '') LIKE ?")) {
+                "DELETE FROM borrower WHERE REPLACE(Ssn, '-', '') LIKE ?")) {
             ps.setString(1, TEST_SSN_PREFIX.replace("-", "") + "%");
             ps.executeUpdate();
         }
@@ -279,7 +279,7 @@ public class BorrowerServiceTest {
         List<String> rows = new ArrayList<>();
         try (Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery(
-                     "SELECT Card_id, Ssn, Bname, Address, Phone FROM BORROWER ORDER BY Card_id")) {
+                     "SELECT Card_id, Ssn, Bname, Address, Phone FROM borrower ORDER BY Card_id")) {
             while (rs.next()) {
                 rows.add(rs.getInt(1) + "|" + rs.getString(2) + "|" + rs.getString(3)
                         + "|" + rs.getString(4) + "|" + rs.getString(5));
@@ -290,7 +290,7 @@ public class BorrowerServiceTest {
 
     private static boolean rowMatches(Connection conn, int cardId, String ssn, String name,
                                       String address, String phone) throws SQLException {
-        String sql = "SELECT Ssn, Bname, Address, Phone FROM BORROWER WHERE Card_id = ?";
+        String sql = "SELECT Ssn, Bname, Address, Phone FROM borrower WHERE Card_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, cardId);
             try (ResultSet rs = ps.executeQuery()) {

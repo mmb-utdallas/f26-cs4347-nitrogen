@@ -53,12 +53,12 @@ public class BorrowerService {
     /**
      * Opens a connection using environment variables so that no password is
      * stored in source code:
-     *   LIBRARY_DB_URL      (default jdbc:mysql://127.0.0.1:3306/Library_Milestone2)
+     *   LIBRARY_DB_URL      (default jdbc:mysql://127.0.0.1:3306/library_milestone2)
      *   LIBRARY_DB_USER     (default root)
      *   LIBRARY_DB_PASSWORD (default empty)
      */
     public static Connection connectFromEnvironment() throws SQLException {
-        String url = getEnv("LIBRARY_DB_URL", "jdbc:mysql://127.0.0.1:3306/Library_Milestone2");
+        String url = getEnv("LIBRARY_DB_URL", "jdbc:mysql://127.0.0.1:3306/library_milestone2");
         String user = getEnv("LIBRARY_DB_USER", "root");
         String password = getEnv("LIBRARY_DB_PASSWORD", "");
         return DriverManager.getConnection(url, user, password);
@@ -178,7 +178,7 @@ public class BorrowerService {
             // Reject a duplicate SSN with a friendly message.
             // Dashes are removed on both sides, so "123-45-6789" also matches an
             // existing record that was stored as "123456789" (e.g. from an import).
-            String checkSsnSql = "SELECT Card_id FROM BORROWER WHERE REPLACE(Ssn, '-', '') = ?";
+            String checkSsnSql = "SELECT Card_id FROM borrower WHERE REPLACE(Ssn, '-', '') = ?";
             try (PreparedStatement ps = connection.prepareStatement(checkSsnSql)) {
                 ps.setString(1, ssn.replace("-", ""));
                 try (ResultSet rs = ps.executeQuery()) {
@@ -193,7 +193,7 @@ public class BorrowerService {
             // We hold the CARD_ID_LOCK (see registerBorrower), so no other
             // registration can read the same MAX value before we commit.
             int newCardId = FIRST_CARD_ID;
-            String maxIdSql = "SELECT MAX(Card_id) FROM BORROWER";
+            String maxIdSql = "SELECT MAX(Card_id) FROM borrower";
             try (PreparedStatement ps = connection.prepareStatement(maxIdSql);
                  ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
@@ -205,7 +205,7 @@ public class BorrowerService {
             }
 
             // Insert the new borrower using a parameterized statement.
-            String insertSql = "INSERT INTO BORROWER (Card_id, Ssn, Bname, Address, Phone) "
+            String insertSql = "INSERT INTO borrower (Card_id, Ssn, Bname, Address, Phone) "
                              + "VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = connection.prepareStatement(insertSql)) {
                 ps.setInt(1, newCardId);
