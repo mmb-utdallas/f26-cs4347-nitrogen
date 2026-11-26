@@ -5,15 +5,17 @@
 
 
 
-**Milestone 2 - Overall 
-Library Management System
+
+
+**#Milestone 2 - Overall 
+##Library Management System
 Project Overview**
 
 This project is a Library Management System developed for CS 4347 – Database Systems at The University of Texas at Dallas.
 
 The application uses Java to communicate with a MySQL database and supports library operations such as book searching, borrowing, returning, borrower management, and fine management.
 
-Technologies Used
+**##Technologies Used**
 
 Java 21
 
@@ -23,7 +25,7 @@ MySQL Connector/J
 
 Visual Studio Code
 
-Repository Structure
+**##Repository Structure**
 
 f26-cs4347-nitrogen/
 ├── Milestone2/
@@ -33,15 +35,15 @@ f26-cs4347-nitrogen/
 │   └── reference_files/
 ├── README.md
 
-Team Information
+**##Team Information**
 
 Course: CS 4347 – Database Systems
 
 Semester: Fall 2026
 
-Team: [Team Number]
-
-Section: [Section Number]
+**Team:** George Chakiath Dani, Srijan Dhakal, Nolan Vesanok Rastabouth, Nathan Tin Nguyen, Teddy Blair Byrne, Shifat Islam Santo
+ 
+**Section:** CS-4347.003
 
 Setup and Execution
 
