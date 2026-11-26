@@ -25,7 +25,7 @@ MySQL Connector/J
 
 Visual Studio Code
 
-**##Repository Structure**
+## Repository Structure
 
 f26-cs4347-nitrogen/
 ├── Milestone2/
@@ -35,15 +35,15 @@ f26-cs4347-nitrogen/
 │   └── reference_files/
 ├── README.md
 
-**##Team Information**
+## Team Information
 
 Course: CS 4347 – Database Systems
 
 Semester: Fall 2026
 
-**Team:** George Chakiath Dani, Srijan Dhakal, Nolan Vesanok Rastabouth, Nathan Tin Nguyen, Teddy Blair Byrne, Shifat Islam Santo
+## Team: George Chakiath Dani, Srijan Dhakal, Nolan Vesanok Rastabouth, Nathan Tin Nguyen, Teddy Blair Byrne, Shifat Islam Santo
  
-**Section:** CS-4347.003
+## Section:** CS-4347.003
 
 Setup and Execution
 
