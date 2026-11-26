@@ -16,6 +16,9 @@ USE `library_milestone2`;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+-- if server is running with --secure-file-prive option, upload the csv file into the directory of secure_file_priv(Folder might be hidden)
+-- Nathans secure_file_priv = C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/
+-- SHOW VARIABLES LIKE 'secure_file_priv';
 
 --
 -- Table structure for table `authors`
@@ -37,7 +40,12 @@ CREATE TABLE `authors` (
 
 LOCK TABLES `authors` WRITE;
 /*!40000 ALTER TABLE `authors` DISABLE KEYS */;
-INSERT INTO `authors` VALUES (1,'Robert C. Martin'),(2,'Joshua Bloch');
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/authors.csv'
+INTO TABLE authors
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
 /*!40000 ALTER TABLE `authors` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -61,7 +69,12 @@ CREATE TABLE `book` (
 
 LOCK TABLES `book` WRITE;
 /*!40000 ALTER TABLE `book` DISABLE KEYS */;
-INSERT INTO `book` VALUES ('9780132350884','Clean Code'),('9780134685991','Effective Java');
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/books_output.csv'
+INTO TABLE book
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
 /*!40000 ALTER TABLE `book` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -88,7 +101,12 @@ CREATE TABLE `book_authors` (
 
 LOCK TABLES `book_authors` WRITE;
 /*!40000 ALTER TABLE `book_authors` DISABLE KEYS */;
-INSERT INTO `book_authors` VALUES (1,'9780132350884'),(2,'9780134685991');
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/book_authors.csv'
+INTO TABLE book_authors
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
 /*!40000 ALTER TABLE `book_authors` ENABLE KEYS */;
 UNLOCK TABLES;
 
