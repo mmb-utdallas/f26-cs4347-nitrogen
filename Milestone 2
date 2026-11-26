@@ -1,0 +1,41 @@
+Library Management System
+
+Project Overview
+
+This project is a Library Management System developed for CS 4347 – Database Systems at The University of Texas at Dallas.
+
+The application uses Java to communicate with a MySQL database and supports library operations such as book searching, borrowing, returning, borrower management, and fine management.
+
+Technologies Used
+
+Java 21
+
+MySQL 8.0
+
+MySQL Connector/J
+
+Visual Studio Code
+
+Repository Structure
+
+f26-cs4347-nitrogen/
+├── Milestone2/
+│   ├── input_csv_files/
+│   │   ├── books.csv
+│   │   └── borrowers.csv
+│   └── reference_files/
+├── README.md
+
+Team Information
+
+Course: CS 4347 – Database Systems
+
+Semester: Fall 2026
+
+Team: [Team Number]
+
+Section: [Section Number]
+
+Setup and Execution
+
+Instructions for database setup, compiling, and running the Java application will be added as development progresses.
