@@ -1,50 +1,24 @@
-# Milestone 1 Tasks
-- Parse CSV files "books-1.csv", "borrowers.csv" in folder input_csv_files
-- Export data into CSV files "books.csv", "book_authors.csv", "authors.csv", "borrowers.csv" in format compatible with schema diagram from reference file "Milestone 1 Requirements.pdf"
-- (Note: input "borrowers.csv" needs some cleanup to match format specified in schema)
+# Library Management System
+CS 4347.003, Fall 2026
+Project Members: George Chakiath Dani, Srijan Dhakal, Nolan Vesanok Rastabouth, Nathan Tin Nguyen, Teddy Blair Byrne, Shifat Islam Santo
 
+## Overview
+This project simulates a library database. The database stores data on library books, borrowers, loans, and fines. The interface program allows for searching the database, checking books in/out, creating new borrower accounts, and tracking/paying fines on overdue books.
 
+The database section of this project is written in SQL and managed in mySQL. The interface program is written in Java.
+## How to Build
+*To be filled out later.*
+## How to Use
+*To be filled out later.*
 
-## --------------------------------------------------------------------------------------
-
-# Milestone 2 - Overall 
-## Library Management System
-## Project Overview
-
-This project is a Library Management System developed for CS 4347 – Database Systems at The University of Texas at Dallas.
-
-The application uses Java to communicate with a MySQL database and supports library operations such as book searching, borrowing, returning, borrower management, and fine management.
-
-## Technologies Used
-
-Java 21
-
-MySQL 8.0
-
-MySQL Connector/J
-
-Visual Studio Code
-
-## Repository Structure
-
-f26-cs4347-nitrogen/
-├── Milestone2/
-│   ├── input_csv_files/
-│   │   ├── books.csv
-│   │   └── borrowers.csv
-│   └── reference_files/
-├── README.md
-
-## Team Information
-
-Course: CS 4347 – Database Systems
-
-Semester: Fall 2026
-
-## Team: George Chakiath Dani, Srijan Dhakal, Nolan Vesanok Rastabouth, Nathan Tin Nguyen, Teddy Blair Byrne, Shifat Islam Santo
- 
-## Section:** CS-4347.003
-
-Setup and Execution
-
-Instructions for database setup, compiling, and running the Java application will be added as development progresses.
+## Repo Structure
+/f26-cs4347-nitrogen/
+- README.md
+- Milestone1
+- - FileParserM1.java: Parser program
+- - input_csv_files: Folder containing CSVs used in FileParserM1.java
+- Milestone2
+- - Main.java: Interface program
+- - Main.class: Class file for Main.java
+- - Library_Milestone2.sql: Database
+- - mysql-connector-j-26.10.0.jar: Connector between interface program and database
