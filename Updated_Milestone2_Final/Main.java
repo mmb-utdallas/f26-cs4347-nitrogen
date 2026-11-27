@@ -1,20 +1,39 @@
 
+import java.io.Console;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
 
 public class Main {
 
+    // limits from the spec: max 3 books out per borrower, return up to 3 at a time
+    private static final int MAX_ACTIVE_LOANS = 3;
+    private static final int MAX_CHECKIN_AT_ONCE = 3;
+    private static final int MAX_SEARCH_WORDS = 10;
+
     public static void main(String[] args) {
 
-        String url = "jdbc:mysql://127.0.0.1:3306/Library_Milestone2";
-        String username = "root";
-        String password = "Joey512006!!";
-
         Scanner input = new Scanner(System.in);
+
+        // login info comes from environment variables so nobody's password ends up on github.
+        // if LIBRARY_DB_PASSWORD isn't set, it just asks for the password when it starts
+        String url = envOrDefault("LIBRARY_DB_URL", "jdbc:mysql://127.0.0.1:3306/library_milestone2");
+        String username = envOrDefault("LIBRARY_DB_USER", "root");
+        String password = System.getenv("LIBRARY_DB_PASSWORD");
+
+        if (password == null) {
+            password = readPassword(input, "MySQL password for " + username + ": ");
+        }
 
         try (Connection connection = DriverManager.getConnection(url, username, password)) {
 
@@ -32,16 +51,16 @@ public class Main {
                 System.out.println("5. View Fines");
                 System.out.println("6. Pay Fines");
                 System.out.println("7. Exit");
-                System.out.print("Enter your choice: ");
 
-                if (!input.hasNextInt()) {
+                String line = prompt(input, "Enter your choice: ");
+
+                try {
+                    choice = Integer.parseInt(line);
+                } catch (NumberFormatException e) {
                     System.out.println("Please enter a number from 1 to 7.");
-                    input.nextLine();
+                    choice = 0;
                     continue;
                 }
-
-                choice = input.nextInt();
-                input.nextLine();
 
                 switch (choice) {
 
@@ -80,8 +99,9 @@ public class Main {
 
         } catch (SQLException e) {
             System.out.println("\nUnable to connect to the Library database.");
-            System.out.println("Please make sure MySQL is running.");
-            System.out.println("Also verify that the database and credentials are configured correctly.");
+            System.out.println("Reason: " + e.getMessage());
+            System.out.println("Make sure MySQL is running, Library_Milestone2.sql has been loaded,");
+            System.out.println("and the password is correct (or set LIBRARY_DB_URL / LIBRARY_DB_USER / LIBRARY_DB_PASSWORD).");
         }
 
         input.close();
@@ -89,8 +109,39 @@ public class Main {
 
     public static void searchBooks(Connection connection, Scanner input) {
 
-    System.out.print("Enter ISBN, book title, or author: ");
-    String search = input.nextLine();
+    String search = prompt(input, "Enter ISBN, book title, or author: ");
+
+    if (search.isEmpty()) {
+        System.out.println("Please enter something to search for.");
+        return;
+    }
+
+    String[] words = search.split("\\s+");
+
+    if (words.length > MAX_SEARCH_WORDS) {
+        System.out.println("Please use " + MAX_SEARCH_WORDS + " words or fewer.");
+        return;
+    }
+
+    // each word has to show up in the isbn, title, or an author name, so "mythology morford" works.
+    // the author check is its own subquery so the Authors column still shows ALL the authors,
+    // not just the one that matched. the words go in as ? parameters, never pasted into the sql
+    String wordCondition = """
+        (b.Isbn LIKE ? ESCAPE '!'
+         OR b.Title LIKE ? ESCAPE '!'
+         OR EXISTS (
+             SELECT 1
+             FROM book_authors ba2
+             JOIN authors a2 ON ba2.Author_id = a2.Author_id
+             WHERE ba2.Isbn = b.Isbn
+             AND a2.Name LIKE ? ESCAPE '!'
+         ))
+        """;
+
+    List<String> conditions = new ArrayList<>();
+    for (int i = 0; i < words.length; i++) {
+        conditions.add(wordCondition);
+    }
 
     String sql = """
         SELECT b.Isbn, b.Title,
@@ -98,52 +149,57 @@ public class Main {
                CASE
                    WHEN EXISTS (
                        SELECT 1
-                       FROM BOOK_LOANS bl
+                       FROM book_loans bl
                        WHERE bl.Isbn = b.Isbn
                        AND bl.Date_in IS NULL
                    )
                    THEN 'OUT'
                    ELSE 'IN'
                END AS Availability
-        FROM BOOK b
-        LEFT JOIN BOOK_AUTHORS ba ON b.Isbn = ba.Isbn
-        LEFT JOIN AUTHORS a ON ba.Author_id = a.Author_id
-        WHERE b.Isbn LIKE ?
-           OR b.Title LIKE ?
-           OR a.Name LIKE ?
+        FROM book b
+        LEFT JOIN book_authors ba ON b.Isbn = ba.Isbn
+        LEFT JOIN authors a ON ba.Author_id = a.Author_id
+        WHERE %s
         GROUP BY b.Isbn, b.Title
-        """;
+        ORDER BY b.Title, b.Isbn
+        """.formatted(String.join(" AND ", conditions));
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
 
-        String searchValue = "%" + search + "%";
-
-        statement.setString(1, searchValue);
-        statement.setString(2, searchValue);
-        statement.setString(3, searchValue);
-
-        ResultSet results = statement.executeQuery();
-
-        boolean found = false;
-
-        while (results.next()) {
-
-            found = true;
-
-            System.out.println("\nISBN: " + results.getString("Isbn"));
-            System.out.println("Title: " + results.getString("Title"));
-            System.out.println("Authors: " + results.getString("Authors"));
-            System.out.println("Availability: " + results.getString("Availability"));
-            System.out.println("-----------------------------");
+        int parameter = 1;
+        for (String word : words) {
+            String searchValue = containsPattern(word);
+            statement.setString(parameter++, searchValue);
+            statement.setString(parameter++, searchValue);
+            statement.setString(parameter++, searchValue);
         }
 
-        if (!found) {
+        int found = 0;
+
+        try (ResultSet results = statement.executeQuery()) {
+
+            while (results.next()) {
+
+                found++;
+
+                String authors = results.getString("Authors");
+
+                System.out.println("\nISBN: " + results.getString("Isbn"));
+                System.out.println("Title: " + results.getString("Title"));
+                System.out.println("Authors: " + (authors == null ? "(none listed)" : authors));
+                System.out.println("Availability: " + results.getString("Availability"));
+                System.out.println("-----------------------------");
+            }
+        }
+
+        if (found == 0) {
             System.out.println("No matching books found.");
+        } else {
+            System.out.println(found + " book(s) found.");
         }
 
     } catch (SQLException e) {
-        System.out.println("Error searching for books.");
-        e.printStackTrace();
+        System.out.println("Error searching for books: " + e.getMessage());
     }
 }
 
@@ -152,114 +208,98 @@ public class Main {
 
 public static void checkOutBook(Connection connection, Scanner input) {
 
-    System.out.print("Enter book ISBN: ");
-    String isbn = input.nextLine();
+    String isbn = prompt(input, "Enter book ISBN: ");
+    String cardId = normalizeCardId(prompt(input, "Enter borrower Card ID: "));
 
-    System.out.print("Enter borrower Card ID: ");
-    String cardId = input.nextLine();
+    if (isbn.isEmpty() || cardId.isEmpty()) {
+        System.out.println("Error: Both an ISBN and a Card ID are required.");
+        return;
+    }
 
     try {
 
-        // 1. Check if the book exists
-        String bookSQL = "SELECT Isbn FROM BOOK WHERE Isbn = ?";
+        // update fines first, otherwise someone with an overdue book could still check out
+        // if nobody opened View Fines yet
+        refreshFines(connection);
 
-        try (PreparedStatement statement = connection.prepareStatement(bookSQL)) {
-
-            statement.setString(1, isbn);
-            ResultSet result = statement.executeQuery();
-
-            if (!result.next()) {
-                System.out.println("Error: Book does not exist.");
-                return;
-            }
-        }
-
-        // 2. Check if the borrower exists
-        String borrowerSQL = "SELECT Card_id FROM BORROWER WHERE Card_id = ?";
-
-        try (PreparedStatement statement = connection.prepareStatement(borrowerSQL)) {
-
-            statement.setString(1, cardId);
-            ResultSet result = statement.executeQuery();
-
-            if (!result.next()) {
-                System.out.println("Error: Borrower does not exist.");
-                return;
-            }
-        }
-
-        // 3. Check if the book is already checked out
-        String loanSQL = "SELECT Loan_id FROM BOOK_LOANS WHERE Isbn = ? AND Date_in IS NULL";
-
-        try (PreparedStatement statement = connection.prepareStatement(loanSQL)) {
-
-            statement.setString(1, isbn);
-            ResultSet result = statement.executeQuery();
-
-            if (result.next()) {
-                System.out.println("Error: Book is already checked out.");
-                return;
-            }
-        }
-
-        // 4. Check borrower's active loan count
-        String countSQL = "SELECT COUNT(*) FROM BOOK_LOANS WHERE Card_id = ? AND Date_in IS NULL";
-
-        try (PreparedStatement statement = connection.prepareStatement(countSQL)) {
-
-            statement.setString(1, cardId);
-            ResultSet result = statement.executeQuery();
-
-            result.next();
-
-            if (result.getInt(1) >= 3) {
-                System.out.println("Error: Borrower already has 3 active loans.");
-                return;
-            }
-        }
-
-        // 5. Check for unpaid fines
-        String fineSQL = """
-            SELECT COUNT(*)
-            FROM FINES f
-            JOIN BOOK_LOANS bl ON f.Loan_id = bl.Loan_id
-            WHERE bl.Card_id = ? AND f.Paid = 0 AND f.Fine_amt > 0
-            """;
-
-        try (PreparedStatement statement = connection.prepareStatement(fineSQL)) {
-
-            statement.setString(1, cardId);
-            ResultSet result = statement.executeQuery();
-
-            result.next();
-
-            if (result.getInt(1) > 0) {
-                System.out.println("Error: Borrower has unpaid fines.");
-                return;
-            }
-        }
-
-        // 6. Create the new loan
-        String insertSQL = """
-            INSERT INTO BOOK_LOANS (Isbn, Card_id, Date_out, Due_date, Date_in)
-            VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 14 DAY), NULL)
-            """;
-
-        try (PreparedStatement statement = connection.prepareStatement(insertSQL)) {
-
-            statement.setString(1, isbn);
-            statement.setString(2, cardId);
-
-            statement.executeUpdate();
-
-            System.out.println("Book successfully checked out!");
-            System.out.println("Due date: 14 days from today.");
-        }
+        Result result = runInTransaction(connection, () -> checkOutInTransaction(connection, isbn, cardId));
+        System.out.println(result.message());
 
     } catch (SQLException e) {
-        System.out.println("Error checking out book.");
-        e.printStackTrace();
+        System.out.println("Error checking out book: " + e.getMessage());
     }
+}
+
+private static Result checkOutInTransaction(Connection connection, String isbn, String cardId) throws SQLException {
+
+    // 1. Check if the book exists (FOR UPDATE locks the row so two people can't check out
+    //    the same book at the same time)
+    if (!exists(connection, "SELECT Isbn FROM book WHERE Isbn = ? FOR UPDATE", isbn)) {
+        return Result.fail("Error: Book does not exist.");
+    }
+
+    // 2. Check if the borrower exists (locked too, so the 3 book limit can't be beaten)
+    if (!exists(connection, "SELECT Card_id FROM borrower WHERE Card_id = ? FOR UPDATE", cardId)) {
+        return Result.fail("Error: Borrower does not exist.");
+    }
+
+    // 3. Check if the book is already checked out (by anyone, including this borrower)
+    if (exists(connection, "SELECT Loan_id FROM book_loans WHERE Isbn = ? AND Date_in IS NULL", isbn)) {
+        return Result.fail("Error: Book is not available. It is already checked out.");
+    }
+
+    // 4. Check borrower's active loan count
+    int activeLoans = countRows(connection,
+        "SELECT COUNT(*) FROM book_loans WHERE Card_id = ? AND Date_in IS NULL", cardId);
+
+    if (activeLoans >= MAX_ACTIVE_LOANS) {
+        return Result.fail("Error: Borrower already has " + MAX_ACTIVE_LOANS + " books checked out.");
+    }
+
+    // 5. Check for unpaid fines (this includes overdue books that are still out)
+    BigDecimal unpaid = unpaidFineTotal(connection, cardId, false);
+
+    if (unpaid.signum() > 0) {
+        return Result.fail(String.format(
+            "Error: Borrower has unpaid fines ($%.2f). Fines must be paid before checking out.", unpaid));
+    }
+
+    // 6. Create the new loan, due exactly 14 days from today
+    String insertSQL = """
+        INSERT INTO book_loans (Isbn, Card_id, Date_out, Due_date, Date_in)
+        VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 14 DAY), NULL)
+        """;
+
+    int loanId;
+
+    try (PreparedStatement statement = connection.prepareStatement(insertSQL, Statement.RETURN_GENERATED_KEYS)) {
+
+        statement.setString(1, isbn);
+        statement.setString(2, cardId);
+        statement.executeUpdate();
+
+        try (ResultSet keys = statement.getGeneratedKeys()) {
+            if (!keys.next()) {
+                throw new SQLException("MySQL did not return the new Loan_id.");
+            }
+            loanId = keys.getInt(1);
+        }
+    }
+
+    String dueDate;
+
+    try (PreparedStatement statement = connection.prepareStatement(
+            "SELECT Due_date FROM book_loans WHERE Loan_id = ?")) {
+
+        statement.setInt(1, loanId);
+
+        try (ResultSet result = statement.executeQuery()) {
+            result.next();
+            dueDate = result.getDate("Due_date").toString();
+        }
+    }
+
+    return Result.ok("Book successfully checked out!\nLoan ID: " + loanId + "\nDue date: " + dueDate);
 }
 
 
@@ -268,118 +308,140 @@ public static void checkOutBook(Connection connection, Scanner input) {
 
 public static void returnBook(Connection connection, Scanner input) {
 
-    System.out.print("Enter ISBN, Card ID, or borrower name: ");
-    String search = input.nextLine();
+    String search = prompt(input, "Enter ISBN, Card ID, or borrower name: ");
+
+    if (search.isEmpty()) {
+        System.out.println("Please enter an ISBN, Card ID, or part of a borrower name.");
+        return;
+    }
 
     String sql = """
         SELECT bl.Loan_id, bl.Isbn, b.Title,
                bl.Card_id, br.Bname, bl.Due_date
-        FROM BOOK_LOANS bl
-        JOIN BOOK b ON bl.Isbn = b.Isbn
-        JOIN BORROWER br ON bl.Card_id = br.Card_id
+        FROM book_loans bl
+        JOIN book b ON bl.Isbn = b.Isbn
+        JOIN borrower br ON bl.Card_id = br.Card_id
         WHERE bl.Date_in IS NULL
         AND (
-            bl.Isbn LIKE ?
-            OR CAST(bl.Card_id AS CHAR) LIKE ?
-            OR br.Bname LIKE ?
+            bl.Isbn LIKE ? ESCAPE '!'
+            OR bl.Card_id LIKE ? ESCAPE '!'
+            OR br.Bname LIKE ? ESCAPE '!'
         )
+        ORDER BY bl.Loan_id
         """;
+
+    // save the loans in the same order we print them, so option 2 is always the 2nd one shown
+    List<Integer> loanIds = new ArrayList<>();
+    List<String> titles = new ArrayList<>();
 
     try (PreparedStatement statement = connection.prepareStatement(sql)) {
 
-        String searchValue = "%" + search + "%";
+        String searchValue = containsPattern(search);
 
         statement.setString(1, searchValue);
         statement.setString(2, searchValue);
         statement.setString(3, searchValue);
 
-        ResultSet results = statement.executeQuery();
+        try (ResultSet results = statement.executeQuery()) {
 
-        int count = 0;
+            while (results.next()) {
 
-        while (results.next()) {
+                loanIds.add(results.getInt("Loan_id"));
+                titles.add(results.getString("Title"));
 
-            count++;
-
-            System.out.println("\nOption: " + count);
-            System.out.println("Loan ID: " + results.getInt("Loan_id"));
-            System.out.println("ISBN: " + results.getString("Isbn"));
-            System.out.println("Title: " + results.getString("Title"));
-            System.out.println("Card ID: " + results.getString("Card_id"));
-            System.out.println("Borrower: " + results.getString("Bname"));            
-            System.out.println("Due Date: " + results.getDate("Due_date"));
-            System.out.println("-----------------------------");
-        }
-
-        if (count == 0) {
-            System.out.println("No active loans found.");
-            return;
-        }
-
-        System.out.print("Enter the option number of the book to return: ");
-        int choice = input.nextInt();
-        input.nextLine();
-
-        if (choice < 1 || choice > count) {
-            System.out.println("Invalid selection.");
-            return;
-        }
-
-
-        String findSQL = """
-            SELECT Loan_id
-            FROM BOOK_LOANS bl
-            JOIN BOOK b ON bl.Isbn = b.Isbn
-            JOIN BORROWER br ON bl.Card_id = br.Card_id
-            WHERE bl.Date_in IS NULL
-            AND (
-                bl.Isbn LIKE ?
-                OR CAST(bl.Card_id AS CHAR) LIKE ?
-                OR br.Bname LIKE ?
-            )
-            ORDER BY bl.Loan_id
-            """;
-
-        int selectedLoanID = 0;
-
-        try (PreparedStatement findStatement =
-                 connection.prepareStatement(findSQL)) {
-
-            findStatement.setString(1, searchValue);
-            findStatement.setString(2, searchValue);
-            findStatement.setString(3, searchValue);
-
-            ResultSet selectedResults = findStatement.executeQuery();
-
-            for (int i = 1; i <= choice; i++) {
-                selectedResults.next();
-                selectedLoanID = selectedResults.getInt("Loan_id");
-            }
-        }
-
-        String updateSQL = """
-            UPDATE BOOK_LOANS
-            SET Date_in = CURDATE()
-            WHERE Loan_id = ? AND Date_in IS NULL
-            """;
-
-        try (PreparedStatement updateStatement =
-                 connection.prepareStatement(updateSQL)) {
-
-            updateStatement.setInt(1, selectedLoanID);
-
-            int updated = updateStatement.executeUpdate();
-
-            if (updated > 0) {
-                System.out.println("Book successfully returned!");
-            } else {
-                System.out.println("Unable to return book.");
+                System.out.println("\nOption: " + loanIds.size());
+                System.out.println("Loan ID: " + results.getInt("Loan_id"));
+                System.out.println("ISBN: " + results.getString("Isbn"));
+                System.out.println("Title: " + results.getString("Title"));
+                System.out.println("Card ID: " + results.getString("Card_id"));
+                System.out.println("Borrower: " + results.getString("Bname"));
+                System.out.println("Due Date: " + results.getDate("Due_date"));
+                System.out.println("-----------------------------");
             }
         }
 
     } catch (SQLException e) {
-        System.out.println("Error returning book.");
-        e.printStackTrace();
+        System.out.println("Error searching for loans: " + e.getMessage());
+        return;
+    }
+
+    if (loanIds.isEmpty()) {
+        System.out.println("No active loans found.");
+        return;
+    }
+
+    String picks = prompt(input,
+        "Enter up to " + MAX_CHECKIN_AT_ONCE + " option numbers to return, separated by spaces (e.g. 1 3): ");
+
+    Set<Integer> chosen = new LinkedHashSet<>();
+
+    for (String token : picks.split("[\\s,]+")) {
+
+        if (token.isEmpty()) {
+            continue;
+        }
+
+        int option;
+        try {
+            option = Integer.parseInt(token);
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid selection: \"" + token + "\" is not a number. Nothing was returned.");
+            return;
+        }
+
+        if (option < 1 || option > loanIds.size()) {
+            System.out.println("Invalid selection: option " + option + " is not in the list. Nothing was returned.");
+            return;
+        }
+
+        chosen.add(option);
+    }
+
+    if (chosen.isEmpty() || chosen.size() > MAX_CHECKIN_AT_ONCE) {
+        System.out.println("Please choose between 1 and " + MAX_CHECKIN_AT_ONCE + " books. Nothing was returned.");
+        return;
+    }
+
+    String updateSQL = """
+        UPDATE book_loans
+        SET Date_in = CURDATE()
+        WHERE Loan_id = ? AND Date_in IS NULL
+        """;
+
+    try {
+
+        // return all the picked books together. if one fails, none of them get returned
+        Result result = runInTransaction(connection, () -> {
+
+            StringBuilder returned = new StringBuilder();
+
+            try (PreparedStatement statement = connection.prepareStatement(updateSQL)) {
+
+                for (int option : chosen) {
+
+                    statement.setInt(1, loanIds.get(option - 1));
+
+                    if (statement.executeUpdate() == 0) {
+                        return Result.fail("Error: Loan " + loanIds.get(option - 1)
+                            + " was already returned. Nothing was returned.");
+                    }
+
+                    returned.append("\n  - ").append(titles.get(option - 1));
+                }
+            }
+
+            return Result.ok(chosen.size() + " book(s) successfully returned:" + returned);
+        });
+
+        System.out.println(result.message());
+
+        // update fines right away so a late return shows the right amount
+        if (result.success()) {
+            refreshFines(connection);
+        }
+
+    } catch (SQLException e) {
+        System.out.println("Error returning book: " + e.getMessage());
     }
 }
 
@@ -388,73 +450,111 @@ public static void returnBook(Connection connection, Scanner input) {
 
 public static void registerBorrower(Connection connection, Scanner input) {
 
-    System.out.print("Enter borrower's full name: ");
-    String name = input.nextLine();
+    String name = prompt(input, "Enter borrower's full name: ");
+    String ssn = prompt(input, "Enter SSN (XXX-XX-XXXX): ");
+    String address = prompt(input, "Enter address: ");
+    String phone = prompt(input, "Enter phone number (optional, press Enter to skip): ");
 
-    System.out.print("Enter SSN (XXX-XX-XXXX): ");
-    String ssn = input.nextLine();
+    // NOT NULL in the table doesn't stop empty text, so we check it here
+    if (name.isEmpty() || ssn.isEmpty() || address.isEmpty()) {
+        System.out.println("Error: Name, SSN, and address are all required.");
+        return;
+    }
 
-    System.out.print("Enter address: ");
-    String address = input.nextLine();
+    if (!ssn.matches("\\d{3}-\\d{2}-\\d{4}")) {
+        System.out.println("Error: SSN must be in the format XXX-XX-XXXX (e.g. 123-45-6789).");
+        return;
+    }
+
+    if (name.length() > 100 || address.length() > 255 || phone.length() > 20) {
+        System.out.println("Error: Name must be at most 100 characters, address 255, and phone 20.");
+        return;
+    }
 
     try {
 
-        // 1. Check for duplicate SSN
-        String checkSQL = "SELECT Card_id FROM BORROWER WHERE Ssn = ?";
+        Result result = runInTransaction(connection, () -> {
 
-        try (PreparedStatement statement = connection.prepareStatement(checkSQL)) {
+            // 1. Check for duplicate SSN (one card per person)
+            String existingCard = firstValue(connection, "SELECT Card_id FROM borrower WHERE Ssn = ?", ssn);
 
-            statement.setString(1, ssn);
-
-            ResultSet result = statement.executeQuery();
-
-            if (result.next()) {
-                System.out.println("Error: A borrower with this SSN already exists.");
-                return;
+            if (existingCard != null) {
+                return Result.fail("Error: A borrower with this SSN already exists (Card ID " + existingCard + ").");
             }
-        }
 
-        // 2. Generate the next Card ID
-        String idSQL = """
-            SELECT COALESCE(MAX(CAST(SUBSTRING(Card_id, 3) AS UNSIGNED)), 0) + 1
-            FROM BORROWER
-            WHERE Card_id LIKE 'ID%'
-            """;
+            // 2. Make the next Card ID in the same format as the existing ones (ID000001, ID000002, ...)
+            //    FOR UPDATE stops two registrations from grabbing the same ID
+            String idSQL = """
+                SELECT COALESCE(MAX(CAST(SUBSTRING(Card_id, 3) AS UNSIGNED)), 0) + 1
+                FROM borrower
+                WHERE Card_id LIKE 'ID%'
+                FOR UPDATE
+                """;
 
-        int nextID = 1;
+            int nextID;
 
-        try (PreparedStatement statement = connection.prepareStatement(idSQL)) {
+            try (PreparedStatement statement = connection.prepareStatement(idSQL);
+                 ResultSet idResult = statement.executeQuery()) {
 
-            ResultSet result = statement.executeQuery();
-
-            if (result.next()) {
-                nextID = result.getInt(1);
+                idResult.next();
+                nextID = idResult.getInt(1);
             }
-        }
 
-        String newCardID = String.format("ID%06d", nextID);
-        // 3. Insert the new borrower
-        String insertSQL = """
-            INSERT INTO BORROWER (Card_id, Ssn, Bname, Address)
-            VALUES (?, ?, ?, ?)
-            """;
+            String newCardID = String.format("ID%06d", nextID);
 
-        try (PreparedStatement statement = connection.prepareStatement(insertSQL)) {
+            // 3. Insert the new borrower
+            String insertSQL = """
+                INSERT INTO borrower (Card_id, Ssn, Bname, Address, Phone)
+                VALUES (?, ?, ?, ?, ?)
+                """;
 
-            statement.setString(1, newCardID);
-            statement.setString(2, ssn);
-            statement.setString(3, name);
-            statement.setString(4, address);
+            try (PreparedStatement statement = connection.prepareStatement(insertSQL)) {
 
-            statement.executeUpdate();
+                statement.setString(1, newCardID);
+                statement.setString(2, ssn);
+                statement.setString(3, name);
+                statement.setString(4, address);
+                statement.setString(5, phone.isEmpty() ? null : phone);
 
-            System.out.println("\nBorrower successfully registered!");
-            System.out.println("Generated Card ID: " + newCardID);
-        }
+                statement.executeUpdate();
+            }
 
+            return Result.ok("\nBorrower successfully registered!\nGenerated Card ID: " + newCardID);
+        });
+
+        System.out.println(result.message());
+
+    } catch (SQLIntegrityConstraintViolationException e) {
+        // backup check: the table itself won't allow two borrowers with the same SSN
+        System.out.println("Error: A borrower with this SSN already exists.");
     } catch (SQLException e) {
-        System.out.println("Error registering borrower.");
-        e.printStackTrace();
+        System.out.println("Error registering borrower: " + e.getMessage());
+    }
+}
+
+
+// Updates the fines table for every late loan. The spec says in real life this would run every
+// night, we just run it before showing fines, paying fines, or checking out.
+//   returned late: (date_in - due_date) days * $0.25
+//   still out:     (today - due_date) days * $0.25
+//   already has an unpaid fine -> update the amount, already paid -> leave it alone
+public static void refreshFines(Connection connection) throws SQLException {
+
+    String calculateSQL = """
+        INSERT INTO fines (Loan_id, Fine_amt, Paid)
+        SELECT * FROM (
+            SELECT Loan_id,
+                   DATEDIFF(COALESCE(Date_in, CURDATE()), Due_date) * 0.25 AS Late_fine,
+                   0 AS Not_paid
+            FROM book_loans
+            WHERE DATEDIFF(COALESCE(Date_in, CURDATE()), Due_date) > 0
+        ) AS late
+        ON DUPLICATE KEY UPDATE
+            Fine_amt = IF(fines.Paid = 0, late.Late_fine, fines.Fine_amt)
+        """;
+
+    try (PreparedStatement statement = connection.prepareStatement(calculateSQL)) {
+        statement.executeUpdate();
     }
 }
 
@@ -462,44 +562,27 @@ public static void registerBorrower(Connection connection, Scanner input) {
 public static void viewFines(Connection connection) {
 
     // 1. Calculate fines for overdue books
-    String calculateSQL = """
-        INSERT INTO FINES (Loan_id, Fine_amt, Paid)
-        SELECT Loan_id,
-               DATEDIFF(COALESCE(Date_in, CURDATE()), Due_date) * 0.25,
-               0
-        FROM BOOK_LOANS
-        WHERE DATEDIFF(COALESCE(Date_in, CURDATE()), Due_date) > 0
-        ON DUPLICATE KEY UPDATE
-            Fine_amt = IF(Paid = 0, VALUES(Fine_amt), Fine_amt)
-        """;
-
-    try (PreparedStatement statement =
-             connection.prepareStatement(calculateSQL)) {
-
-        statement.executeUpdate();
-
+    try {
+        refreshFines(connection);
     } catch (SQLException e) {
-        System.out.println("Error calculating fines.");
-        e.printStackTrace();
+        System.out.println("Error calculating fines: " + e.getMessage());
         return;
     }
 
-    // 2. Display outstanding fines grouped by borrower
+    // 2. Display outstanding fines grouped by borrower (paid fines are filtered out)
     String displaySQL = """
         SELECT br.Card_id, br.Bname,
                SUM(f.Fine_amt) AS TotalFines
-        FROM FINES f
-        JOIN BOOK_LOANS bl ON f.Loan_id = bl.Loan_id
-        JOIN BORROWER br ON bl.Card_id = br.Card_id
+        FROM fines f
+        JOIN book_loans bl ON f.Loan_id = bl.Loan_id
+        JOIN borrower br ON bl.Card_id = br.Card_id
         WHERE f.Paid = 0 AND f.Fine_amt > 0
         GROUP BY br.Card_id, br.Bname
         ORDER BY br.Card_id
         """;
 
-    try (PreparedStatement statement =
-             connection.prepareStatement(displaySQL)) {
-
-        ResultSet results = statement.executeQuery();
+    try (PreparedStatement statement = connection.prepareStatement(displaySQL);
+         ResultSet results = statement.executeQuery()) {
 
         boolean found = false;
 
@@ -511,8 +594,7 @@ public static void viewFines(Connection connection) {
 
             System.out.println("\nCard ID: " + results.getString("Card_id"));
             System.out.println("Borrower: " + results.getString("Bname"));
-            System.out.printf("Total Fine: $%.2f%n",
-                    results.getDouble("TotalFines"));
+            System.out.printf("Total Fine: $%.2f%n", results.getBigDecimal("TotalFines"));
 
             System.out.println("-----------------------------");
         }
@@ -522,8 +604,7 @@ public static void viewFines(Connection connection) {
         }
 
     } catch (SQLException e) {
-        System.out.println("Error displaying fines.");
-        e.printStackTrace();
+        System.out.println("Error displaying fines: " + e.getMessage());
     }
 }
 
@@ -533,116 +614,233 @@ public static void viewFines(Connection connection) {
 
 public static void payFines(Connection connection, Scanner input) {
 
-    System.out.print("Enter borrower Card ID: ");
-    String cardId = input.nextLine();
+    String cardId = normalizeCardId(prompt(input, "Enter borrower Card ID: "));
+
+    if (cardId.isEmpty()) {
+        System.out.println("Error: A Card ID is required.");
+        return;
+    }
 
     try {
 
-        // 1. Check if borrower exists
-        String borrowerSQL =
-            "SELECT Card_id FROM BORROWER WHERE Card_id = ?";
+        // update fines first so the amount is current
+        refreshFines(connection);
 
-        try (PreparedStatement statement =
-                 connection.prepareStatement(borrowerSQL)) {
+        Result result = runInTransaction(connection, () -> {
 
-            statement.setString(1, cardId);
-
-            ResultSet result = statement.executeQuery();
-
-            if (!result.next()) {
-                System.out.println("Error: Borrower does not exist.");
-                return;
+            // 1. Check if borrower exists
+            if (!exists(connection, "SELECT Card_id FROM borrower WHERE Card_id = ?", cardId)) {
+                return Result.fail("Error: Borrower does not exist.");
             }
-        }
 
-        // 2. Check for outstanding fines
-        String fineSQL = """
-            SELECT SUM(f.Fine_amt)
-            FROM FINES f
-            JOIN BOOK_LOANS bl ON f.Loan_id = bl.Loan_id
-            WHERE bl.Card_id = ?
-            AND f.Paid = 0
-            AND f.Fine_amt > 0
-            """;
+            // 2. Check for outstanding fines
+            BigDecimal totalFine = unpaidFineTotal(connection, cardId, true);
 
-        double totalFine = 0;
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(fineSQL)) {
-
-            statement.setString(1, cardId);
-
-            ResultSet result = statement.executeQuery();
-
-            if (result.next()) {
-                totalFine = result.getDouble(1);
+            if (totalFine.signum() <= 0) {
+                return Result.fail("No outstanding fines for this borrower.");
             }
-        }
 
-        if (totalFine <= 0) {
-            System.out.println("No outstanding fines for this borrower.");
-            return;
-        }
+            // 3. Can't pay while a book with a fine is still checked out (spec rule)
+            String activeSQL = """
+                SELECT COUNT(*)
+                FROM fines f
+                JOIN book_loans bl ON f.Loan_id = bl.Loan_id
+                WHERE bl.Card_id = ?
+                AND f.Paid = 0
+                AND f.Fine_amt > 0
+                AND bl.Date_in IS NULL
+                """;
 
-        System.out.printf("Total outstanding fines: $%.2f%n", totalFine);
-
-        // 3. Check whether any books with unpaid fines are still checked out
-        String activeSQL = """
-            SELECT COUNT(*)
-            FROM FINES f
-            JOIN BOOK_LOANS bl ON f.Loan_id = bl.Loan_id
-            WHERE bl.Card_id = ?
-            AND f.Paid = 0
-            AND f.Fine_amt > 0
-            AND bl.Date_in IS NULL
-            """;
-
-        try (PreparedStatement statement =
-                 connection.prepareStatement(activeSQL)) {
-
-            statement.setString(1, cardId);
-
-            ResultSet result = statement.executeQuery();
-
-            result.next();
-
-            if (result.getInt(1) > 0) {
-                System.out.println(
-                    "Error: Return all books with outstanding fines before paying."
-                );
-                return;
+            if (countRows(connection, activeSQL, cardId) > 0) {
+                return Result.fail(String.format(
+                    "Total outstanding fines: $%.2f%nError: Return all books with outstanding fines before paying.",
+                    totalFine));
             }
-        }
 
-        // 4. Mark all outstanding fines as paid
-        String updateSQL = """
-            UPDATE FINES f
-            JOIN BOOK_LOANS bl ON f.Loan_id = bl.Loan_id
-            SET f.Paid = 1
-            WHERE bl.Card_id = ?
-            AND f.Paid = 0
-            AND f.Fine_amt > 0
-            """;
+            // 4. Mark all outstanding fines as paid (no partial payments)
+            String updateSQL = """
+                UPDATE fines f
+                JOIN book_loans bl ON f.Loan_id = bl.Loan_id
+                SET f.Paid = 1
+                WHERE bl.Card_id = ?
+                AND f.Paid = 0
+                AND f.Fine_amt > 0
+                """;
 
-        try (PreparedStatement statement =
-                 connection.prepareStatement(updateSQL)) {
+            int updated;
 
-            statement.setString(1, cardId);
+            try (PreparedStatement statement = connection.prepareStatement(updateSQL)) {
+                statement.setString(1, cardId);
+                updated = statement.executeUpdate();
+            }
 
-            int updated = statement.executeUpdate();
+            return Result.ok(String.format(
+                "Fine payment successful!%nAmount paid: $%.2f%nFine records updated: %d", totalFine, updated));
+        });
 
-            System.out.println("Fine payment successful!");
-            System.out.printf("Amount paid: $%.2f%n", totalFine);
-            System.out.println("Fine records updated: " + updated);
-        }
+        System.out.println(result.message());
 
     } catch (SQLException e) {
-        System.out.println("Error processing fine payment.");
-        e.printStackTrace();
+        System.out.println("Error processing fine payment: " + e.getMessage());
     }
 }
 
 
+// ---------- helpers ----------
 
+// what happened: success decides if we save (commit) or undo (rollback), message is what we print
+private record Result(boolean success, String message) {
+
+    static Result ok(String message) {
+        return new Result(true, message);
+    }
+
+    static Result fail(String message) {
+        return new Result(false, message);
+    }
+}
+
+@FunctionalInterface
+private interface TransactionWork {
+    Result run() throws SQLException;
+}
+
+// runs a group of database steps as one unit: if everything works it saves (commit),
+// if anything fails it undoes all of it (rollback), so we never save half a checkout or payment
+private static Result runInTransaction(Connection connection, TransactionWork work) throws SQLException {
+
+    connection.setAutoCommit(false);
+
+    try {
+        Result result = work.run();
+
+        if (result.success()) {
+            connection.commit();
+        } else {
+            connection.rollback();
+        }
+
+        return result;
+
+    } catch (SQLException | RuntimeException e) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackError) {
+            e.addSuppressed(rollbackError);
+        }
+        throw e;
+
+    } finally {
+        connection.setAutoCommit(true);
+    }
+}
+
+private static boolean exists(Connection connection, String sql, String value) throws SQLException {
+    return firstValue(connection, sql, value) != null;
+}
+
+private static String firstValue(Connection connection, String sql, String value) throws SQLException {
+
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+
+        statement.setString(1, value);
+
+        try (ResultSet result = statement.executeQuery()) {
+            return result.next() ? result.getString(1) : null;
+        }
+    }
+}
+
+private static int countRows(Connection connection, String sql, String value) throws SQLException {
+
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+
+        statement.setString(1, value);
+
+        try (ResultSet result = statement.executeQuery()) {
+            result.next();
+            return result.getInt(1);
+        }
+    }
+}
+
+// total unpaid fines for one borrower (lockRows = true locks those rows while paying)
+private static BigDecimal unpaidFineTotal(Connection connection, String cardId, boolean lockRows) throws SQLException {
+
+    String sql = """
+        SELECT COALESCE(SUM(f.Fine_amt), 0)
+        FROM fines f
+        JOIN book_loans bl ON f.Loan_id = bl.Loan_id
+        WHERE bl.Card_id = ?
+        AND f.Paid = 0
+        AND f.Fine_amt > 0
+        """ + (lockRows ? " FOR UPDATE" : "");
+
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+
+        statement.setString(1, cardId);
+
+        try (ResultSet result = statement.executeQuery()) {
+            result.next();
+            return result.getBigDecimal(1);
+        }
+    }
+}
+
+// turns text into a LIKE pattern for "contains", and makes % and _ normal characters if someone types them
+private static String containsPattern(String text) {
+    String escaped = text.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+    return "%" + escaped + "%";
+}
+
+// lets you type ID000123, id000123, or just 123
+private static String normalizeCardId(String raw) {
+
+    String cardId = raw.trim().toUpperCase();
+
+    if (cardId.matches("\\d{1,6}")) {
+        return String.format("ID%06d", Integer.parseInt(cardId));
+    }
+
+    return cardId;
+}
+
+private static String prompt(Scanner input, String message) {
+
+    System.out.print(message);
+
+    // if the input runs out (like Ctrl+Z), exit instead of crashing
+    if (!input.hasNextLine()) {
+        exitNoInput();
+    }
+
+    return input.nextLine().trim();
+}
+
+private static String readPassword(Scanner input, String message) {
+
+    Console console = System.console();
+
+    // hides the password while you type it (works in a normal terminal like run_library.bat)
+    if (console != null) {
+        char[] typed = console.readPassword(message);
+        if (typed == null) {
+            exitNoInput();
+        }
+        return new String(typed);
+    }
+
+    return prompt(input, message);
+}
+
+private static void exitNoInput() {
+    System.out.println("\nNo more input. Exiting Library System...");
+    System.exit(0);
+}
+
+private static String envOrDefault(String name, String fallback) {
+    String value = System.getenv(name);
+    return (value == null || value.isBlank()) ? fallback : value;
+}
 
 }

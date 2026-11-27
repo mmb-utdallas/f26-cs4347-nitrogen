@@ -16,9 +16,10 @@ USE `library_milestone2`;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
--- if server is running with --secure-file-prive option, upload the csv file into the directory of secure_file_priv(Folder might be hidden)
--- Nathans secure_file_priv = C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/
--- SHOW VARIABLES LIKE 'secure_file_priv';
+-- BEFORE RUNNING: MySQL only loads CSV files from its secure_file_priv folder.
+--   1. Run: SHOW VARIABLES LIKE 'secure_file_priv';   (on Windows usually C:/ProgramData/MySQL/MySQL Server <version>/Uploads/, a hidden folder)
+--   2. Copy authors.csv, books_output.csv, book_authors.csv and borrowers_output.csv from Milestone1/input_csv_files/ into that folder.
+--   3. If your folder is different, find-and-replace the path below (C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/) with yours.
 
 --
 -- Table structure for table `authors`
@@ -31,7 +32,7 @@ CREATE TABLE `authors` (
   `Author_id` int NOT NULL AUTO_INCREMENT,
   `Name` varchar(255) NOT NULL,
   PRIMARY KEY (`Author_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -120,7 +121,7 @@ DROP TABLE IF EXISTS `book_loans`;
 CREATE TABLE `book_loans` (
   `Loan_id` int NOT NULL AUTO_INCREMENT,
   `Isbn` varchar(20) NOT NULL,
-  `Card_id` int NOT NULL,
+  `Card_id` varchar(10) NOT NULL,
   `Date_out` date NOT NULL,
   `Due_date` date NOT NULL,
   `Date_in` date DEFAULT NULL,
@@ -129,7 +130,7 @@ CREATE TABLE `book_loans` (
   KEY `fk_book_loans_borrower` (`Card_id`),
   CONSTRAINT `fk_book_loans_book` FOREIGN KEY (`Isbn`) REFERENCES `book` (`isbn`),
   CONSTRAINT `fk_book_loans_borrower` FOREIGN KEY (`Card_id`) REFERENCES `borrower` (`Card_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -138,7 +139,6 @@ CREATE TABLE `book_loans` (
 
 LOCK TABLES `book_loans` WRITE;
 /*!40000 ALTER TABLE `book_loans` DISABLE KEYS */;
-INSERT INTO `book_loans` VALUES (1,'9780132350884',1001,'2026-11-23','2026-12-07',NULL),(2,'9780134685991',1002,'2026-11-23','2026-12-07',NULL);
 /*!40000 ALTER TABLE `book_loans` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -150,7 +150,7 @@ DROP TABLE IF EXISTS `borrower`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `borrower` (
-  `Card_id` int NOT NULL,
+  `Card_id` varchar(10) NOT NULL,
   `Ssn` varchar(11) NOT NULL,
   `Bname` varchar(100) NOT NULL,
   `Address` varchar(255) NOT NULL,
@@ -167,7 +167,7 @@ CREATE TABLE `borrower` (
 LOCK TABLES `borrower` WRITE;
 /*!40000 ALTER TABLE `borrower` DISABLE KEYS */;
 LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 26.10/Uploads/borrowers_output.csv'
-INTO TABLE BORROWER
+INTO TABLE borrower
 FIELDS TERMINATED BY ','
 ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
